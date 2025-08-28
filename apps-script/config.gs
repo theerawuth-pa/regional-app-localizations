@@ -1,0 +1,5 @@
+const CONFIG = {
+  SPREADSHEET_ID: '1cTJTPBcGatIqGrxZOhmEfR6Cd4oP25PuWc4GxAAHaBU',
+  SHEET_NAME: 'app',
+  BRANDS: ['nocnoc','renos']
+};
