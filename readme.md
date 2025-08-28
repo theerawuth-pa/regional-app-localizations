@@ -47,7 +47,7 @@ It enables teams to manage translations in Google Sheets, and automatically gene
 - `config.gs` – global configuration (`SPREADSHEET_ID`, `SHEET_NAME`, `BRANDS`).
 - `utils.gs` – helper functions (string formatting, key conversion).
 - `core.gs` – parser, builder, and endpoint logic.
-- `tests/TestRunner.gs` – simple test harness for unit testing functions.
+- `tests.gs` – simple test harness for unit testing functions.
 
 ---
 
@@ -62,3 +62,28 @@ const CONFIG = {
   SHEET_NAME: 'app',
   BRANDS: ['nocnoc', 'renos']
 };
+
+## 🐚 Shell Script (Flutter Integration)
+
+Use the helper script to download brand–locale JSON files from the Apps Script Web API directly into your Flutter project.
+
+### What the script does
+- Calls your **Apps Script Web App** with `?file=<brand>_<locale>.json`
+- Writes each JSON to `assets/i18n/` (auto-creates the folder)
+- Supports **fixed brand–locale mapping** (per your team’s policy)
+
+### Prerequisites
+- `curl` available on your machine/CI
+- Apps Script is deployed as a Web App and reachable (use the `/exec` URL)
+- Flutter project includes the i18n folder in `pubspec.yaml`
+
+```yaml
+# pubspec.yaml
+flutter:
+  assets:
+    - assets/i18n/
+
+
+### Usage
+``` bash
+sh script/localizations.sh <brand>
