@@ -3,7 +3,7 @@ function safeStr_(v) {
   return (v == null) ? '' : String(v).trim();
 }
 
-/** แปลงข้อความส่วน feature ให้เป็น dot-segment (เช่น "App Common" -> "app.common") */
+/** Convert namespace text into dot-segment (e.g., "App Common" -> "app.common") */
 function toDotSegment_(input) {
   return input
     .toString()
@@ -12,21 +12,21 @@ function toDotSegment_(input) {
     .replace(/^\.+|\.+$/g, '');    // trim dots
 }
 
-/** แปลงข้อความส่วน key ให้เป็น snake_case (เช่น "copy link success" -> "copy_link_success") */
+/** Convert key text into snake_case (e.g., "copy link success" -> "copy_link_success") */
 function toSnake_(input) {
   return input
     .toString()
     .toLowerCase()
-    .replace(/[_\-./]+/g, ' ')
-    .replace(/\s+/g, ' ')
+    .replace(/[_\-./]+/g, ' ')     // replace separators with space
+    .replace(/\s+/g, ' ')          // normalize multiple spaces
     .trim()
-    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/[^a-z0-9\s]/g, '')   // remove invalid chars
     .split(' ')
     .filter(Boolean)
     .join('_');
 }
 
-/** สร้างคีย์สุดท้าย: {feature}.{key_snake_case} */
+/** Build final key: {namespace}.{key_snake_case} */
 function toDotKey_(feature, rawKey) {
   return `${toDotSegment_(feature)}.${toSnake_(rawKey)}`;
 }

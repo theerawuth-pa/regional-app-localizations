@@ -1,78 +1,57 @@
-/*** CORE (parser + builder + endpoint) ***/
-
-/** ===== Parser (pure) ===== **/
+/** ===== Parser: header & rows (new requirement) ===== **/
 function mapHeaderIndexes_(header) {
-  const norm  = header.map(h => (h || '').toString().trim());
+  // Normalize column headers (trim + lowercase for matching)
+  const norm = header.map(h => (h || '').toString().trim());
   const lower = norm.map(h => h.toLowerCase());
 
-  const featureIdx = lower.indexOf('feature');
-  const keysIdx    = lower.indexOf('keys');
-  if (featureIdx < 0 || keysIdx < 0) {
-    throw new Error('Header must include "Feature" and "Keys".');
+  const nsIdx   = lower.indexOf('namespace');
+  const keysIdx = lower.indexOf('keys');
+  if (nsIdx < 0 || keysIdx < 0) {
+    throw new Error('Header must include "namespace" and "keys".');
   }
 
-  // locale columns: ลงท้ายด้วย "(locale_code)" เช่น "English (th_en)"
+  // Every other column is treated as a locale code (e.g., "th_en", "th_th", "id_en", "id_id")
   const locales = {};
   norm.forEach((title, i) => {
-    if (i === featureIdx || i === keysIdx) return;
-    const m = title.match(/\(([^)]+)\)\s*$/);
-    if (m && m[1]) locales[m[1].trim()] = i;
+    if (i === nsIdx || i === keysIdx) return;
+    const lc = title.trim();
+    const lcLower = lc.toLowerCase();
+    locales[lcLower] = i;
   });
+
   if (Object.keys(locales).length === 0) {
-    throw new Error('No locale columns found. Use headers like "English (th_en)".');
+    throw new Error('No locale columns found. Expect headers like "th_en", "th_th", "id_en", "id_id".');
   }
-  return { feature: featureIdx, keys: keysIdx, locales };
+
+  return { namespace: nsIdx, keys: keysIdx, locales };
 }
 
 function collectAllLocales_(dataRows, colIdx) {
+  // Prepare result object per locale
   const result = {};
   Object.keys(colIdx.locales).forEach(locale => (result[locale] = {}));
 
   for (const row of dataRows) {
-    const feature = safeStr_(row[colIdx.feature]);
-    const rawKey  = safeStr_(row[colIdx.keys]);
-    if (!feature || !rawKey) continue;
+    const nsRaw  = safeStr_(row[colIdx.namespace]);
+    const keyRaw = safeStr_(row[colIdx.keys]);
+    if (!nsRaw || !keyRaw) continue;
 
-    const dotKey = toDotKey_(feature, rawKey); // {feature}.{key_snake}
+    const ns  = toDotSegment_(nsRaw); // "App Common" -> "app.common"
+    const key = toSnake_(keyRaw);     // "copy link success" -> "copy_link_success"
 
     for (const [locale, idx] of Object.entries(colIdx.locales)) {
       const text = safeStr_(row[idx]);
-      result[locale][dotKey] = text;
+
+      // Nested structure: result[locale][namespace][key] = text
+      if (!result[locale][ns]) result[locale][ns] = {};
+      result[locale][ns][key] = text;
     }
   }
   return result;
 }
 
-/** ===== Builder (pure) ===== **/
-/**
- * @param {Array<string>} header  - แถวหัวตาราง
- * @param {Array<Array<any>>} rows - data rows
- * @param {Array<string>} brands   - รายชื่อแบรนด์
- * @returns {{ filesMap: Object, locales: string[], brands: string[] }}
- */
-function buildFilesFromTable_(header, rows, brands) {
-  const colIdx = mapHeaderIndexes_(header);
-  const dictByLocale = collectAllLocales_(rows, colIdx);
-
-  const locales  = Object.keys(colIdx.locales).sort();
-  const filesMap = {};
-
-  for (const brand of brands) {
-    for (const locale of locales) {
-      const src = dictByLocale[locale] || {};
-      const obj = {};
-      for (const [k, v] of Object.entries(src)) {
-        if (v !== '' && v != null) obj[k] = v; // กรองว่าง
-      }
-      const fileKey = `${brand}_${locale}`;
-      filesMap[fileKey] = obj;
-    }
-  }
-  return { filesMap, locales, brands: brands.slice() };
-}
-
-/** ===== Builder (from Spreadsheet) ===== **/
-function buildAllBrandFiles_() {
+/** ===== Builder: sheet -> files map per locale ===== **/
+function buildAllLocaleFiles_() {
   const ss    = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
   const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
   if (!sheet) throw new Error(`Sheet "${CONFIG.SHEET_NAME}" not found`);
@@ -82,52 +61,100 @@ function buildAllBrandFiles_() {
 
   const header = data[0];
   const rows   = data.slice(1);
-  return buildFilesFromTable_(header, rows, CONFIG.BRANDS);
+
+  const colIdx = mapHeaderIndexes_(header);
+  const dictByLocale = collectAllLocales_(rows, colIdx);
+
+  const filesMap = {};  // key = locale (e.g., "th_en", "th_th", ...)
+  const locales  = Object.keys(colIdx.locales).sort();
+
+  for (const locale of locales) {
+    const src = dictByLocale[locale] || {};
+    // Optionally filter out empty values
+    const cleaned = {};
+    for (const [ns, kv] of Object.entries(src)) {
+      const inner = {};
+      for (const [k, v] of Object.entries(kv)) {
+        if (v !== '' && v != null) inner[k] = v;
+      }
+      if (Object.keys(inner).length > 0) cleaned[ns] = inner;
+    }
+    filesMap[locale] = cleaned;
+  }
+
+  return { filesMap, locales };
 }
 
-/** ===== Endpoint ===== **/
-// 3 โหมด:
-// 1) ?list=1
-// 2) ?file=<brand>_<locale>.json
-// 3) ?brand=<b>&locale=<l>
+/** ===== Endpoint: supports ?file=<locale>.json and ?locale=<code> ===== **/
 function doGet(e)  { return handleRequest_(e); }
 function doPost(e) { return handleRequest_(e); }
 
 function handleRequest_(e) {
   const q = (e && e.parameter) || {};
-  const bundle = buildAllBrandFiles_(); // { filesMap, locales, brands }
-  return handleRequestWithData_(q, bundle); // แยกเพื่อเทสต์ได้
+  const bundle = buildAllLocaleFiles_(); // { filesMap, locales }
+  return handleRequestWithData_(q, bundle);
 }
 
-/** แกนลอจิกของ endpoint (pure) */
 function handleRequestWithData_(q, bundle) {
-  const { filesMap, locales, brands } = bundle;
+  const { filesMap, locales } = bundle;
 
   if (q.list === '1') {
-    const names = Object.keys(filesMap).map(n => n + '.json');
+    const names = Object.keys(filesMap).map(lc => `${lc}.json`);  // e.g., th_en.json
     return ContentService
-      .createTextOutput(JSON.stringify({ files: names, locales, brands }))
+      .createTextOutput(JSON.stringify({ files: names, locales }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
   let fileKey = '';
   if (q.file) {
-    fileKey = String(q.file).replace(/\.json$/i, '');
-  } else if (q.brand && q.locale) {
-    fileKey = `${q.brand}_${q.locale}`;
+    fileKey = String(q.file).replace(/\.json$/i, ''); // "th_en.json" -> "th_en"
+  } else if (q.locale) {
+    fileKey = String(q.locale);
   } else {
-    const msg = { error: 'missing_param', usage: '?file=<name>.json OR ?brand=<b>&locale=<l> OR ?list=1' };
+    const msg = { error: 'missing_param', usage: '?file=<locale>.json OR ?locale=<locale> OR ?list=1' };
     return ContentService.createTextOutput(JSON.stringify(msg))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
-  const obj = filesMap[fileKey];
+  // Normalize locale key to lowercase
+  const lcKey = fileKey.toLowerCase();
+  const obj = filesMap[lcKey];
   if (!obj) {
     return ContentService
-      .createTextOutput(JSON.stringify({ error: 'not_found', file: fileKey + '.json' }))
+      .createTextOutput(JSON.stringify({ error: 'not_found', file: `${lcKey}.json` }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * For Unit Test
+ * Pure builder: build files map per-locale from in-memory table.
+ * @param {Array<string>} header
+ * @param {Array<Array<any>>} rows
+ * @returns {{ filesMap: Object, locales: string[] }}
+ */
+function buildLocaleFilesFromTable_(header, rows) {
+  const colIdx = mapHeaderIndexes_(header);
+  const dictByLocale = collectAllLocales_(rows, colIdx);
+
+  const filesMap = {};
+  const locales  = Object.keys(colIdx.locales).sort();
+
+  for (const locale of locales) {
+    const src = dictByLocale[locale] || {};
+    const cleaned = {};
+    for (const [ns, kv] of Object.entries(src)) {
+      const inner = {};
+      for (const [k, v] of Object.entries(kv)) {
+        if (v !== '' && v != null) inner[k] = v;
+      }
+      if (Object.keys(inner).length > 0) cleaned[ns] = inner;
+    }
+    filesMap[locale] = cleaned;
+  }
+  return { filesMap, locales };
 }
