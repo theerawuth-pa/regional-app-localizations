@@ -12,7 +12,7 @@ function toDotSegment_(input) {
     .replace(/^\.+|\.+$/g, '');    // trim dots
 }
 
-/** แปลงข้อความส่วน key ให้เป็น snake_case (เช่น "copy link success" -> "copy_link_success") */
+/** แปลงข้อความส่วน key ให้เป็น snake_case (เช่น "copy link success!" -> "copy_link_success!") */
 function toSnake_(input) {
   return input
     .toString()
