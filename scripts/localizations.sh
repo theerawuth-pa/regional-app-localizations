@@ -15,14 +15,14 @@ DEFAULT_LOCALES="$TH_GROUP $ID_GROUP"
 usage() {
   echo "Usage:"
   echo "  $0                   # fetch all (th_th th_en id_en id_id)"
-  echo "  $0 th                # fetch th group"
-  echo "  $0 id                # fetch id group"
+  echo "  $0 th                # fetch th group (th_th, th_en)"
+  echo "  $0 id                # fetch id group (id_en, id_id)"
   echo "  $0 th id             # fetch both groups"
   echo "  $0 th_th id_en       # fetch specific locales"
   exit 1
 }
 
-# Build requested locale list
+# Build requested locale list (supports groups + explicit locales)
 build_locales() {
   if [ "$#" -eq 0 ]; then
     echo "$DEFAULT_LOCALES"
@@ -34,19 +34,20 @@ build_locales() {
     case "$arg" in
       th) REQ="$REQ $TH_GROUP" ;;
       id) REQ="$REQ $ID_GROUP" ;;
-      *_*) REQ="$REQ $arg" ;;  # specific locale
+      *_*) REQ="$REQ $arg" ;;  # looks like specific locale (e.g., th_en)
       -h|--help) usage ;;
       *) echo "Warning: unknown selector '$arg' (skipped)" >&2 ;;
     esac
   done
 
-  # deduplicate
+  # de-duplicate while preserving order
   printf '%s\n' $REQ | awk '!seen[$0]++' | tr '\n' ' '
 }
 
 mkdir -p "$OUT_DIR"
 
-# Expand args
+# Expand args to locales
+# shellcheck disable=SC2048,SC2086
 LOCALES="$(build_locales $*)"
 LOCALES="$(echo "$LOCALES" | xargs)" # trim
 
@@ -59,12 +60,7 @@ echo "=== Fetching locales: $LOCALES ==="
 for L in $LOCALES; do
   FILE="${L}.json"
   URL="${DEST_URL}?file=${FILE}"
-
-  # group folder = first part before underscore (th / id)
-  GROUP=$(echo "$L" | cut -d'_' -f1)
-  OUT_PATH="${OUT_DIR}/${GROUP}/${FILE}"
-
-  mkdir -p "$(dirname "$OUT_PATH")"
+  OUT_PATH="${OUT_DIR}/${FILE}"
 
   echo "Downloading ${FILE} -> ${OUT_PATH}"
   curl -sSL "$URL" -o "$OUT_PATH"
