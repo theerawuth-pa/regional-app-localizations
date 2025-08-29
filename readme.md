@@ -197,10 +197,8 @@ sh scripts/localizations.sh th_en id_en # fetch specific locales
 ### Download Path
 ```
 assets/locales/
-  th/
     th_en.json
     th_th.json
-  id/
     id_en.json
     id_id.json
 ```
